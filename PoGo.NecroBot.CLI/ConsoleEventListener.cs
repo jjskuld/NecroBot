@@ -301,7 +301,7 @@ namespace PoGo.NecroBot.CLI
                         TranslationString.HighestsPokemoCell,
                         pokemon.Item1.Cp.ToString().PadLeft(4, ' '),
                         pokemon.Item2.ToString().PadLeft(4, ' '),
-                        pokemon.Item3.ToString("0.00"),
+                        pokemon.Item3.ToString("0.00").PadLeft(6, ' '),
                         strPerfect,
                         pokemon.Item4.ToString("00"),
                         strName,
