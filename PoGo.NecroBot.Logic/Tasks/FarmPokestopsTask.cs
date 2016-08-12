@@ -67,8 +67,13 @@ namespace PoGo.NecroBot.Logic.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                //resort
-                var pokestopListWithDetails = pokestopList
+                // Sort by distance and get first 8
+                var pokestopListNear = pokestopList.OrderBy(
+                            i => LocationUtils.CalculateDistanceInMeters(session.Client.CurrentLatitude, session.Client.CurrentLongitude, i.Latitude, i.Longitude)
+                        ).ToList().Take(8);
+
+                // Get OSM path for nearest 8
+                var pokestopListWithDetails = pokestopListNear
                                 .Select(p =>
                                 {
                                     Boolean useNav = session.LogicSettings.UseOsmNavigation && LocationUtils.CalculateDistanceInMeters(session.Client.CurrentLatitude, session.Client.CurrentLongitude, p.Latitude, p.Longitude) > session.LogicSettings.OsmMinDistanceInMeter;
@@ -125,9 +130,10 @@ namespace PoGo.NecroBot.Logic.Tasks
                                 })
                                 .OrderBy(p => p.Distance)
                                 .ToList();
-                // randomize next pokestop between first and second by distance
+                
+                // randomize next pokestop between first and second by distance - only if OSM is disabled
                 var pokestopListNum = 0;
-                if (pokestopList.Count > 1)
+                if (pokestopList.Count > 1 && !session.LogicSettings.UseOsmNavigation)
                 {
                     pokestopListNum = rc.Next(0, 2);
                 }
