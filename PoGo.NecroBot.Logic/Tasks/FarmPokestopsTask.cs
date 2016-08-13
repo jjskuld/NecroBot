@@ -131,11 +131,17 @@ namespace PoGo.NecroBot.Logic.Tasks
                                 .OrderBy(p => p.Distance)
                                 .ToList();
                 
-                // randomize next pokestop between first and second by distance - only if OSM is disabled
+                // randomize next pokestop between first and second by distance
                 var pokestopListNum = 0;
-                if (pokestopList.Count > 1 && !session.LogicSettings.UseOsmNavigation)
+                if (pokestopListWithDetails.Count > 1)
                 {
-                    pokestopListNum = rc.Next(0, 2);
+                    // randomize only if distance is similar
+                    var d0 = pokestopListWithDetails[0].Distance;
+                    var d1 = pokestopListWithDetails[1].Distance;
+                    if (d0 > 0 && (d1 / d0) < 1.75f)
+                    {
+                        pokestopListNum = rc.Next(0, 2);
+                    }
                 }
 
                 var pokeStop = pokestopListWithDetails[pokestopListNum];
