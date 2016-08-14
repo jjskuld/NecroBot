@@ -14,6 +14,8 @@ using PoGo.NecroBot.Logic.Utils;
 using PokemonGo.RocketAPI.Extensions;
 using POGOProtos.Map.Fort;
 using POGOProtos.Networking.Responses;
+using System.Xml.Linq;
+using System.Xml.XPath;
 
 #endregion
 
@@ -25,7 +27,7 @@ namespace PoGo.NecroBot.Logic.Tasks
         public static int TimesZeroXPawarded;
         private static int storeRI;
         private static int RandomNumber;
-
+        private static readonly System.Globalization.CultureInfo _CultureEnglish = new System.Globalization.CultureInfo("en");
         public static async Task Execute(ISession session, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -71,48 +73,109 @@ namespace PoGo.NecroBot.Logic.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                //resort
-                pokestopList =
-                    pokestopList.OrderBy(
-                        i =>
-                            LocationUtils.CalculateDistanceInMeters(session.Client.CurrentLatitude,
-                                session.Client.CurrentLongitude, i.Latitude, i.Longitude)).ToList();
+                // Sort by distance and get first 8
+                var pokestopListNear = pokestopList.OrderBy(
+                            i => LocationUtils.CalculateDistanceInMeters(session.Client.CurrentLatitude, session.Client.CurrentLongitude, i.Latitude, i.Longitude)
+                        ).ToList().Take(8);
 
+                // Get OSM path for nearest 8
+                var pokestopListWithDetails = pokestopListNear
+                                .Select(p =>
+                                {
+                                    Boolean useNav = session.LogicSettings.UseOsmNavigation && LocationUtils.CalculateDistanceInMeters(session.Client.CurrentLatitude, session.Client.CurrentLongitude, p.Latitude, p.Longitude) > session.LogicSettings.OsmMinDistanceInMeter;
+                                    String uri = useNav ? string.Format(_CultureEnglish, "http://www.yournavigation.org/api/1.0/gosmore.php?flat={0:0.000000}&flon={1:0.000000}&tlat={2:0.000000}&tlon={3:0.000000}&v=foot", session.Client.CurrentLatitude, session.Client.CurrentLongitude, p.Latitude, p.Longitude) : null;
+                                    XDocument doc = useNav ? XDocument.Load(uri) : null;
+                                    XNamespace kmlns = useNav ? XNamespace.Get("http://earth.google.com/kml/2.0") : null;
+                                    var points = !useNav ? null :
+                                                 doc.Element(kmlns + "kml")
+                                                    .Element(kmlns + "Document")
+                                                    .Element(kmlns + "Folder")
+                                                    .Element(kmlns + "Placemark")
+                                                    .Element(kmlns + "LineString")
+                                                    .Element(kmlns + "coordinates")
+                                                    .Value
+                                                    .Trim()
+                                                    .Split(Environment.NewLine.ToCharArray(), StringSplitOptions.RemoveEmptyEntries)
+                                                    .Select(pp =>
+                                                    {
+                                                        String[] parts = pp.Split(',');
+                                                        return new
+                                                        {
+                                                            Latitude = double.Parse(parts[1], _CultureEnglish),
+                                                            Longitude = double.Parse(parts[0], _CultureEnglish),
+                                                        };
+                                                    })
+                                                    .ToArray();
+                                    Double dist = useNav ?
+                                                          new Func<double>(() =>
+                                                          {
+                                                              Double d = 0d;
+                                                              for (int i = 1; i < points.Length; i++)
+                                                              {
+                                                                  d += LocationUtils.CalculateDistanceInMeters
+                                                                  (
+                                                                      points[i - 1].Latitude,
+                                                                      points[i - 1].Longitude,
+                                                                      points[i].Latitude,
+                                                                      points[i].Longitude
+                                                                  );
+                                                              }
+                                                              return d;
+                                                          })() :
+                                                          LocationUtils.CalculateDistanceInMeters(session.Client.CurrentLatitude, session.Client.CurrentLongitude, p.Latitude, p.Longitude);
+                                    return new
+                                    {
+                                        PokeStop = p,
+                                        UseOSM = useNav,
+                                        Distance = dist,
+                                        NavigationDocumentUri = uri,
+                                        NavigationDocument = doc,
+                                        NavigationDocumentNamespace = kmlns,
+                                        Points = points
+                                    };
+                                })
+                                .OrderBy(p => p.Distance)
+                                .ToList();
+                
                 // randomize next pokestop between first and second by distance
                 var pokestopListNum = 0;
-                if (pokestopList.Count >= 1)
+                if (pokestopListWithDetails.Count > 1)
                 {
-                    pokestopListNum = rc.Next(0, 2);
-                }
-                var pokeStop = pokestopList[pokestopListNum];
-                pokestopList.RemoveAt(pokestopListNum);
-
-                var distance = LocationUtils.CalculateDistanceInMeters(session.Client.CurrentLatitude,
-                    session.Client.CurrentLongitude, pokeStop.Latitude, pokeStop.Longitude);
-                var fortInfo = await session.Client.Fort.GetFort(pokeStop.Id, pokeStop.Latitude, pokeStop.Longitude);
-                double WalkingSpeed = session.LogicSettings.WalkingSpeedInKilometerPerHour;
-                var randomFactor = 0.5f;
-                var randomMin = (int)(WalkingSpeed * (1 - randomFactor));
-                var randomMax = (int)(WalkingSpeed * (1 + randomFactor));
-                var RandomWalkSpeed = RandomDevice.Next(randomMin, randomMax);
-                cancellationToken.ThrowIfCancellationRequested();
-                session.EventDispatcher.Send(new FortTargetEvent {Name = fortInfo.Name, Distance = distance});
-
-                    await session.Navigation.Move(new GeoCoordinate(pokeStop.Latitude, pokeStop.Longitude, LocationUtils.getElevation(pokeStop.Latitude, pokeStop.Longitude)),
-                    RandomWalkSpeed,
-                    async () =>
+                    // randomize only if distance is similar
+                    var d0 = pokestopListWithDetails[0].Distance;
+                    var d1 = pokestopListWithDetails[1].Distance;
+                    if (d0 > 0 && (d1 / d0) < 1.75f)
                     {
-                        // Catch normal map Pokemon
-                        await CatchNearbyPokemonsTask.Execute(session, cancellationToken);
-                        //Catch Incense Pokemon
-                        await CatchIncensePokemonsTask.Execute(session, cancellationToken);
-                        return true;
-                    }, cancellationToken, session.LogicSettings.DisableHumanWalking);
+                        pokestopListNum = rc.Next(0, 2);
+                    }
+                }
+
+                var pokeStop = pokestopListWithDetails[pokestopListNum];
+                pokestopList.Remove(pokeStop.PokeStop);
+
+                var distance = pokeStop.Distance;
+                var fortInfo = await session.Client.Fort.GetFort(pokeStop.PokeStop.Id, pokeStop.PokeStop.Latitude, pokeStop.PokeStop.Longitude);
+
+                session.EventDispatcher.Send(new FortTargetEvent { Name = fortInfo.Name, Distance = distance });
+
+                if (pokeStop.UseOSM)
+                {
+                    var points = pokeStop.Points;
+                    if (points.Any())
+                    {
+                        foreach (var step in points)
+                        {
+                            await MoveToLocationAsync(session, cancellationToken, step.Latitude, step.Longitude);
+                        }
+                    }
+                }
+                //Why no else? Just to be sure =)
+                await MoveToLocationAsync(session, cancellationToken, pokeStop.PokeStop.Latitude, pokeStop.PokeStop.Longitude);
 
                 //Catch Lure Pokemon
-                if (pokeStop.LureInfo != null)
+                if (pokeStop.PokeStop.LureInfo != null)
                 {
-                    await CatchLurePokemonsTask.Execute(session, pokeStop, cancellationToken);
+                    await CatchLurePokemonsTask.Execute(session, pokeStop.PokeStop, cancellationToken);
                 }
 
                 FortSearchResponse fortSearch;
@@ -125,7 +188,7 @@ namespace PoGo.NecroBot.Logic.Tasks
                     cancellationToken.ThrowIfCancellationRequested();
 
                     fortSearch =
-                        await session.Client.Fort.SearchFort(pokeStop.Id, pokeStop.Latitude, pokeStop.Longitude);
+                        await session.Client.Fort.SearchFort(pokeStop.PokeStop.Id, pokeStop.PokeStop.Latitude, pokeStop.PokeStop.Longitude);
                     if (fortSearch.ExperienceAwarded > 0 && timesZeroXPawarded > 0) timesZeroXPawarded = 0;
                     if (fortSearch.ExperienceAwarded == 0)
                     {
@@ -169,13 +232,13 @@ namespace PoGo.NecroBot.Logic.Tasks
 
                         session.EventDispatcher.Send(new FortUsedEvent
                         {
-                            Id = pokeStop.Id,
+                            Id = pokeStop.PokeStop.Id,
                             Name = fortInfo.Name,
                             Exp = fortSearch.ExperienceAwarded,
                             Gems = fortSearch.GemsAwarded,
                             Items = StringUtils.GetSummedFriendlyNameOfItemAwardList(fortSearch.ItemsAwarded),
-                            Latitude = pokeStop.Latitude,
-                            Longitude = pokeStop.Longitude,
+                            Latitude = pokeStop.PokeStop.Latitude,
+                            Longitude = pokeStop.PokeStop.Longitude,
                             InventoryFull = fortSearch.Result == FortSearchResponse.Types.Result.InventoryFull
                         });
 
@@ -241,6 +304,27 @@ namespace PoGo.NecroBot.Logic.Tasks
                 if (session.LogicSettings.SnipeAtPokestops || session.LogicSettings.UseSnipeLocationServer)
                     await SnipePokemonTask.Execute(session, cancellationToken);
             }
+        }
+
+        private static async Task MoveToLocationAsync(ISession session, CancellationToken cancellationToken, double latitude, double longitude)
+        {
+            double WalkingSpeed = session.LogicSettings.WalkingSpeedInKilometerPerHour;
+            var randomFactor = 0.5f;
+            var randomMin = (int)(WalkingSpeed * (1 - randomFactor));
+            var randomMax = (int)(WalkingSpeed * (1 + randomFactor));
+            var RandomWalkSpeed = RandomDevice.Next(randomMin, randomMax);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await session.Navigation.Move(new GeoCoordinate(latitude, longitude),
+                RandomWalkSpeed,
+                async () =>
+                {
+                    // Catch normal map Pokemon
+                    await CatchNearbyPokemonsTask.Execute(session, cancellationToken);
+                    // Catch Incense Pokemon
+                    await CatchIncensePokemonsTask.Execute(session, cancellationToken);
+                    return true;
+                }, cancellationToken, session.LogicSettings.DisableHumanWalking);
         }
 
         private static async Task<List<FortData>> GetPokeStops(ISession session)
