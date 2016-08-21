@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using PoGo.NecroBot.Logic.Interfaces.Configuration;
 using POGOProtos.Enums;
 using POGOProtos.Inventory.Item;
+using System;
 
 #endregion
 
@@ -18,6 +19,11 @@ namespace PoGo.NecroBot.Logic.Model.Settings
 
         {
             _settings = settings;
+        }
+
+        public int GenRandom(int value, double variancePercentage = 0.15)
+        {
+            return value - new Random().Next(((int)Math.Ceiling(value * variancePercentage)));
         }
 
         public string ProfilePath => _settings.ProfilePath;
@@ -107,13 +113,13 @@ namespace PoGo.NecroBot.Logic.Model.Settings
         public double RecycleInventoryAtUsagePercentage => _settings.RecycleSettings.RecycleInventoryAtUsagePercentage;
         public double EvolveKeptPokemonsAtStorageUsagePercentage => _settings.PokemonSettings.EvolveKeptPokemonsAtStorageUsagePercentage;
         public bool UseKillSwitchCatch => _settings.KillSwitchSettings.UseKillSwitchCatch;
-        public int CatchErrorPerHours => _settings.KillSwitchSettings.CatchErrorPerHours;
-        public int CatchEscapePerHours => _settings.KillSwitchSettings.CatchEscapePerHours;
-        public int CatchFleePerHours => _settings.KillSwitchSettings.CatchFleePerHours;
-        public int CatchMissedPerHours => _settings.KillSwitchSettings.CatchMissedPerHours;
-        public int CatchSuccessPerHours => _settings.KillSwitchSettings.CatchSuccessPerHours;
+        public int CatchErrorPerHours => GenRandom(_settings.KillSwitchSettings.CatchErrorPerHours);
+        public int CatchEscapePerHours => GenRandom(_settings.KillSwitchSettings.CatchEscapePerHours);
+        public int CatchFleePerHours => GenRandom(_settings.KillSwitchSettings.CatchFleePerHours);
+        public int CatchMissedPerHours => GenRandom(_settings.KillSwitchSettings.CatchMissedPerHours);
+        public int CatchSuccessPerHours => GenRandom(_settings.KillSwitchSettings.CatchSuccessPerHours);
         public bool UseKillSwitchPokestops => _settings.KillSwitchSettings.UseKillSwitchPokestops;
-        public int AmountPokestops => _settings.KillSwitchSettings.AmountPokestops;
+        public int AmountPokestops => GenRandom(_settings.KillSwitchSettings.AmountPokestops);
         public ICollection<KeyValuePair<ItemId, int>> ItemRecycleFilter => _settings.ItemRecycleFilter;
         public ICollection<PokemonId> PokemonsToEvolve => _settings.PokemonsToEvolve;
         public ICollection<PokemonId> PokemonsToLevelUp => _settings.PokemonsToLevelUp;
