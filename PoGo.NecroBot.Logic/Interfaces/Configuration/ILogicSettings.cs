@@ -11,6 +11,7 @@ namespace PoGo.NecroBot.Logic.Interfaces.Configuration
 {
     public interface ILogicSettings
     {
+        double GlobalVariancePercentage { get; }
         bool UseWebsocket { get; }
         bool CatchPokemon { get; }
         int CatchPokemonLimit { get; }

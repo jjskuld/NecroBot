@@ -27,6 +27,9 @@ namespace PoGo.NecroBot.Logic.Model.Settings
         [JsonIgnore]
         public string ProfilePath;
 
+        [DefaultValue(0.05d)]
+        public double GlobalVariancePercentage = 0.05d;
+
         public ConsoleConfig ConsoleConfig = new ConsoleConfig();
         public UpdateConfig UpdateConfig = new UpdateConfig();
         public WebsocketsConfig WebsocketsConfig = new WebsocketsConfig();
